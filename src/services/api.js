@@ -66,12 +66,14 @@ export const authService = {
 };
 
 export const mailingService = {
+  // Agora recebem o clientId e injetam o getTenantHeaders
   getSegments: async (page = 1, clientId) => {
     const { data } = await api.get(`/wallets?page=${page}`, { 
       headers: getTenantHeaders(clientId) 
     });
     return data.data;
   },
+  
   uploadMailing: async (formData, clientId) => {
     const { data } = await api.post('/mailings', formData, {
       headers: { 
@@ -81,6 +83,7 @@ export const mailingService = {
     });
     return data;
   },
+  
   checkStatus: async (mailingIds, clientId) => {
     let queryString = '';
     if (Array.isArray(mailingIds)) {
@@ -99,6 +102,7 @@ export const mailingService = {
 };
 
 export const configService = {
+  // Serviços de configuração também precisam do clientId
   getWABAs: async (clientId) => {
     const { data } = await api.get('/settings/channels/whatsapp-accounts', { 
       headers: getTenantHeaders(clientId) 

@@ -40,6 +40,27 @@ const VERIFY_LEVELS = [
     { value: '1', label: "Sem Propensão – Sem Conta WhatsApp" }
 ];
 
+// --- MOCK MAILING PADRÃO ---
+const MOCK_DATA = [
+    { TIPO_DE_REGISTRO: "TELEFONE", VALOR_DO_REGISTRO: "51998259416", MENSAGEM: "", NOME_CLIENTE: "Giovanne", CPFCNPJ: "34311155588", CODCLIENTE: "", TAG: "", CORINGA1: "", CORINGA2: "", CORINGA3: "", CORINGA4: "", CORINGA5: "", PRIORIDADE: "" },
+    { TIPO_DE_REGISTRO: "TELEFONE", VALOR_DO_REGISTRO: "11964160938", MENSAGEM: "", NOME_CLIENTE: "Giovanne Marinho", CPFCNPJ: "34311155587", CODCLIENTE: "", TAG: "", CORINGA1: "", CORINGA2: "", CORINGA3: "", CORINGA4: "", CORINGA5: "", PRIORIDADE: "" }
+];
+
+const MOCK_MAILING = {
+    id: 'mock-mailing-default',
+    name: 'Base Padrão de Testes (Mock)',
+    uploadDate: new Date().toLocaleString(),
+    count: 2,
+    data: MOCK_DATA,
+    apiConfig: {
+        include: { text: true, templateParameters: false, contact: true, discardSettings: false },
+        values: { text: '', walletClientCode: '', attendantUserName: '', recentContactLastHours: 0, inAttendance: false },
+        templateParams: []
+    },
+    serverData: { id: 'invenio-mock-ok', status: 'I', download_results: [] },
+    isCleaned: true
+};
+
 export default function QueueManager() {
     const { clientId } = useParams();
     const navigate = useNavigate();
@@ -70,7 +91,15 @@ export default function QueueManager() {
     const [segments, setSegments] = useState([]);
     const [prodQueues, setProdQueues] = useState(() => JSON.parse(localStorage.getItem(QUEUES_STORAGE_KEY) || '[]'));
     const [stats, setStats] = useState(() => JSON.parse(localStorage.getItem(STATS_STORAGE_KEY) || '{"messagesSent":0,"activeQueues":0}'));
-    const [mailings, setMailings] = useState(() => JSON.parse(localStorage.getItem(MAILINGS_STORAGE_KEY) || '[]'));
+    
+    // Inicializa Mailings injetando o Mock caso não exista
+    const [mailings, setMailings] = useState(() => {
+        const stored = JSON.parse(localStorage.getItem(MAILINGS_STORAGE_KEY) || '[]');
+        if (!stored.some(m => m.id === MOCK_MAILING.id)) {
+            return [MOCK_MAILING, ...stored];
+        }
+        return stored;
+    });
 
     const activeRuns = useRef({}); // Controla as threads de disparo real em Produção
 
@@ -453,6 +482,7 @@ export default function QueueManager() {
 
     return (
         <div className="space-y-6 animate-in fade-in pb-20">
+            {/* CABEÇALHO */}
             <div className="flex items-center gap-4 border-b border-slate-200 pb-4 mb-6">
                 <button onClick={() => navigate('/dashboard')} className="p-2 rounded hover:bg-slate-100 text-slate-500"><ArrowLeft size={24} /></button>
                 <div className="flex-1">
@@ -824,7 +854,7 @@ const BlockDetailModal = ({ clientId, block, onClose, onRetryMailing }) => {
 
 
 // ============================================================================
-// MODAIS DE IMPORTAÇÃO E VALIDAÇÃO (INTACTOS DO SEU CÓDIGO)
+// MODAIS DE IMPORTAÇÃO E VALIDAÇÃO
 // ============================================================================
 
 const CreateQueueForm = ({ mailings, onCreateQueue }) => {
@@ -1014,7 +1044,6 @@ const InvenioUploadModal = ({ segments, onClose, onSuccess, clientId }) => {
                         </div>
 
                         <div className="flex justify-between items-center pt-6 border-t mt-6">
-                            <a href="#" className="text-blue-600 text-sm hover:underline flex items-center gap-1"><LinkIcon size={14} /> Links Relacionados</a>
                             <div className="flex gap-3">
                                 <button onClick={onClose} className="px-5 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-md">Cancelar</button>
                                 <button onClick={handleUpload} className="bg-blue-600 text-white px-6 py-2 rounded-md font-bold hover:bg-blue-700 shadow-sm">Importar</button>
