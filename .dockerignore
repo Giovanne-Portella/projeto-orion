@@ -1,0 +1,7 @@
+# Ignora dependências que serão instaladas dentro do container
+node_modules
+
+# Ignora o diretório de build, pois ele é gerado dentro do container
+dist
+.git
+.env

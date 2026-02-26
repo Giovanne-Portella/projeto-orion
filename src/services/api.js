@@ -15,12 +15,16 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// NOVA FUNÇÃO AUXILIAR: Pega o header específico do ambiente (card)
+const getTenantHeaders = (clientId) => {
+  const token = localStorage.getItem(`orion_tenant_token_${clientId}`);
+  return token ? { 'Custom-Auth': `Bearer ${token}` } : {};
+};
+
 export const authService = {
-  // Mantemos a assinatura que seu index.jsx já usa
   login: async (company, username, password) => {
     const AUTH_URL = 'https://api-accounts.robbu.global/v1/login';
     
-    // 1. Envia com chaves MINÚSCULAS conforme seu CURL (isso conserta o erro 401)
     const { data } = await axios.post(AUTH_URL, { 
       company, 
       username, 
@@ -33,14 +37,11 @@ export const authService = {
     if (data.access_token) {
       localStorage.setItem('orion_token', data.access_token);
       
-      // 2. CORREÇÃO DO NOME: Salvamos os parâmetros da função (o que foi digitado)
-      // e não data.username (que provavelmente vem vazio da API)
       localStorage.setItem('orion_user', JSON.stringify({ 
         name: username, 
         company: company 
       }));
       
-      // Define avatar inicial se não existir
       if (!localStorage.getItem('orion_avatar_seed')) {
         localStorage.setItem('orion_avatar_seed', username);
       }
@@ -65,50 +66,61 @@ export const authService = {
 };
 
 export const mailingService = {
-  getSegments: async (page = 1) => {
-    const { data } = await api.get(`/wallets?page=${page}`);
-    return data.data; // Ajuste conforme estrutura real de retorno
+  getSegments: async (page = 1, clientId) => {
+    const { data } = await api.get(`/wallets?page=${page}`, { 
+      headers: getTenantHeaders(clientId) 
+    });
+    return data.data;
   },
-  uploadMailing: async (formData) => {
+  uploadMailing: async (formData, clientId) => {
     const { data } = await api.post('/mailings', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 
+        'Content-Type': 'multipart/form-data',
+        ...getTenantHeaders(clientId)
+      }
     });
     return data;
   },
-  checkStatus: async (mailingIds) => {
-    // Se mailingIds for array, formata query string, senão passa direto
+  checkStatus: async (mailingIds, clientId) => {
     let queryString = '';
     if (Array.isArray(mailingIds)) {
         const params = new URLSearchParams();
         mailingIds.forEach(id => params.append('items[]', id));
         queryString = `?${params.toString()}`;
     } else {
-        // Caso seu backend aceite direto na URL
         queryString = `/${mailingIds}/status`; 
     }
     
-    // Ajuste aqui conforme a rota real que estava funcionando no seu projeto
-    // Baseado no seu código anterior:
-    const { data } = await api.get(`/mailings/status${queryString}`);
+    const { data } = await api.get(`/mailings/status${queryString}`, { 
+      headers: getTenantHeaders(clientId) 
+    });
     return data.data;
   }
 };
 
 export const configService = {
-  getWABAs: async () => {
-    const { data } = await api.get('/settings/channels/whatsapp-accounts');
+  getWABAs: async (clientId) => {
+    const { data } = await api.get('/settings/channels/whatsapp-accounts', { 
+      headers: getTenantHeaders(clientId) 
+    });
     return data.data;
   },
-  getLines: async (wabaId) => {
-    const { data } = await api.get(`/settings/channels/whatsapp?whatsapp_account_id=${wabaId}&prospect=false`);
+  getLines: async (wabaId, clientId) => {
+    const { data } = await api.get(`/settings/channels/whatsapp?whatsapp_account_id=${wabaId}&prospect=false`, { 
+      headers: getTenantHeaders(clientId) 
+    });
     return data.data;
   },
-  getSettings: async () => {
-    const { data } = await api.get('/settings');
+  getSettings: async (clientId) => {
+    const { data } = await api.get('/settings', { 
+      headers: getTenantHeaders(clientId) 
+    });
     return data.data;
   },
-  getTemplates: async (wabaId) => {
-    const { data } = await api.get(`/campaigns/whatsapp/templates?whatsapp_account_id=${wabaId}`);
+  getTemplates: async (wabaId, clientId) => {
+    const { data } = await api.get(`/campaigns/whatsapp/templates?whatsapp_account_id=${wabaId}`, { 
+      headers: getTenantHeaders(clientId) 
+    });
     return data.data;
   }
 };

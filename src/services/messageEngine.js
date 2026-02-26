@@ -6,11 +6,17 @@ const sendMessageApi = axios.create({
   baseURL: 'https://api.robbu.global/v1',
 });
 
-// Adiciona o mesmo interceptor da API principal para injetar o token de autorização.
+// ATUALIZADO: Interceptor agora respeita o token do ambiente (card) se ele for passado
 sendMessageApi.interceptors.request.use(async config => {
-  const token = localStorage.getItem('orion_token'); // Assumindo que o token é salvo com esta chave
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  if (config.headers['Custom-Auth']) {
+    config.headers.Authorization = config.headers['Custom-Auth'];
+    delete config.headers['Custom-Auth'];
+  } else {
+    // Fallback para o token global caso não seja uma requisição específica de um card
+    const token = localStorage.getItem('orion_token'); 
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
   }
   return config;
 });
@@ -55,7 +61,7 @@ export const buildMessagePayload = (contactRow, payloadOptions) => {
   const { include, values } = payloadOptions;
   const payload = {};
 
-  // Token privado é sempre necessário
+  // Token privado é sempre necessário (agora virá do state/localStorage do ambiente)
   payload.invenioPrivateToken = values.invenioPrivateToken;
 
   // Tratamento do Telefone
@@ -134,11 +140,16 @@ export const buildMessagePayload = (contactRow, payloadOptions) => {
   return payload;
 };
 
-export const sendSingleMessage = async (payload) => {
+// ATUALIZADO: Recebe o clientId para injetar o token correto do ambiente
+export const sendSingleMessage = async (payload, clientId) => {
   try {
-    // O interceptor da 'api' deve injetar o 'Authorization: Bearer {access_token}'
-    // O 'invenioPrivateToken' já está no corpo do payload.
-    const { data } = await sendMessageApi.post('/sendmessage', payload);
+    // Busca o token específico deste cliente/card no localStorage
+    const tenantToken = localStorage.getItem(`orion_tenant_token_${clientId}`);
+    
+    // Configura o header customizado se o token existir
+    const headers = tenantToken ? { 'Custom-Auth': `Bearer ${tenantToken}` } : {};
+
+    const { data } = await sendMessageApi.post('/sendmessage', payload, { headers });
     return { success: true, data: data };
   } catch (error) {
     return { 
