@@ -51,15 +51,15 @@ const MainLayout = () => {
 
   const avatarUrl = `https://api.dicebear.com/7.x/bottts/svg?seed=${avatarSeed}`;
 
-const navItems = [
+  const navItems = [
     { path: '/dashboard', label: 'Painel de Controle', icon: LayoutDashboard },
   ];
 
   return (
     <div className="min-h-screen bg-[#F0F2F5] font-sans flex flex-col">
 
-      {/* HEADER FULL WIDTH */}
-      <header className="bg-white w-full border-b border-slate-200 shadow-sm z-50 relative">
+      {}
+      <header className="bg-white w-full border-b border-slate-200 shadow-sm relative">
         <div className="max-w-[1440px] mx-auto h-20 px-4 md:px-6 flex items-center justify-between">
 
           {/* Esquerda: Menu Mobile + Logo Clicável */}
