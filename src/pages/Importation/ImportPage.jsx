@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { mailingService, configService } from '../../services/api';
 import { buildMessagePayload, sendSingleMessage } from '../../services/messageEngine';
-import { parseCSV, downloadAndParseCSV } from '../../utils/csvParser';
-import { Play, CloudUpload, CheckCircle, Settings, Server, Terminal, Loader2, ListFilter, RotateCcw, ToggleLeft, ToggleRight, CheckSquare, Square, FileText, Phone, Mail, Users, Tag, Edit, Trash2, PlusCircle, Download, ArrowRight, Link as LinkIcon, Zap } from 'lucide-react';
+import { downloadAndParseCSV } from '../../utils/csvParser';
+import { Play, CloudUpload, CheckCircle, Server, Loader2, ListFilter, RotateCcw, ToggleLeft, ToggleRight, CheckSquare, Square, FileText, Phone, Users, Tag, Edit, Trash2, PlusCircle, Download, ArrowRight, Link as LinkIcon, Zap } from 'lucide-react';
 
-// --- CONSTANTES ---
 const LGPD_OPTIONS = [
   { id: 1, label: "Consentimento", desc: "Consentimento livre, inequívoco e informado." },
   { id: 2, label: "Legítimo interesse", desc: "Interesse legítimo da empresa." },
@@ -32,17 +31,10 @@ export default function ImportPage() {
   const [segments, setSegments] = useState([]);
   const fileInputRef = useRef(null);
 
-  // --- ETAPA 1: UPLOAD ---
-  const [step, setStep] = useState('upload'); // upload, processing, results, campaign
+  const [step, setStep] = useState('upload'); 
   const initialFormState = {
-    description: '',
-    wallet_id: '',
-    // Toggles restaurados:
-    wallet_unique_confirmation: false,
-    clear_hashtag: false,
-    robbu_verify: true,
-    selected_verify_level: 'HIGH_PROPENSITY',
-    lgpd_type: '1'
+    description: '', wallet_id: '', wallet_unique_confirmation: false, clear_hashtag: false,
+    robbu_verify: true, selected_verify_level: 'HIGH_PROPENSITY', lgpd_type: '1'
   };
 
   const [uploadForm, setUploadForm] = useState(initialFormState);
@@ -51,12 +43,10 @@ export default function ImportPage() {
   const [serverStatus, setServerStatus] = useState(null);
   const [isPolling, setIsPolling] = useState(false);
 
-  // --- ETAPA 3: DISPARO ---
   const [contactsToSend, setContactsToSend] = useState([]);
   const [dashboardQueues, setDashboardQueues] = useState([]);
   const [selectedQueueId, setSelectedQueueId] = useState('');
 
-  // --- ETAPA 2: CONFIGURAÇÃO DO PAYLOAD (NOVO) ---
   const [payloadOptions, setPayloadOptions] = useState({
     include: {
       text: true, emailSubject: false, channel: true, templateName: false, attendantUserName: false,
@@ -64,13 +54,8 @@ export default function ImportPage() {
       contact: false, voiceSettings: false, files: false,
     },
     values: {
-      invenioPrivateToken: '',
-      text: 'Olá, [NOME_CLIENTE]!',
-      emailSubject: '',
-      channel: 3,
-      templateName: '',
-      attendantUserName: '',
-      templateParameters: [{ parameterName: '', parameterValue: '' }],
+      invenioPrivateToken: '', text: 'Olá, [NOME_CLIENTE]!', emailSubject: '', channel: 3, templateName: '',
+      attendantUserName: '', templateParameters: [{ parameterName: '', parameterValue: '' }],
       source: { countryCode: 55, phoneNumber: '', prospect: false },
       destination: { countryCode: 55, phoneNumber: '', email: '' },
       discardSettings: { recentContactLastHours: 0, InAttendance: false },
@@ -79,24 +64,19 @@ export default function ImportPage() {
         jokers: ['[CORINGA1]', '[CORINGA2]', '[CORINGA3]', '[CORINGA4]', '[CORINGA5]'],
         walletClientCode: '', updateIfExists: true,
       },
-      voiceSettings: { callId: '' },
-      files: [{ address: '', base64: '', name: '' }],
+      voiceSettings: { callId: '' }, files: [{ address: '', base64: '', name: '' }],
     },
-    // Configurações de disparo
-    speed: 60,
-    wabaId: '',
-    lineId: '',
+    speed: 60, wabaId: '', lineId: '',
   });
 
   const [runStatus, setRunStatus] = useState({ running: false, sent: 0, errors: 0 });
   const [logs, setLogs] = useState([]);
   const stopRef = useRef(false);
 
-  // --- HANDLERS PARA ATUALIZAR O PAYLOAD (NOVO) ---
   const handlePayloadChange = (path, value) => {
     setPayloadOptions(prev => {
       const keys = path.split('.');
-      const newOptions = JSON.parse(JSON.stringify(prev)); // Deep copy
+      const newOptions = JSON.parse(JSON.stringify(prev));
       let current = newOptions;
       for (let i = 0; i < keys.length - 1; i++) {
         current = current[keys[i]];
@@ -112,13 +92,11 @@ export default function ImportPage() {
     handlePayloadChange('values.templateParameters', newParams);
   };
 
-  // --- CICLO DE VIDA ---
   useEffect(() => {
     mailingService.getSegments()
       .then(data => setSegments(Array.isArray(data) ? data : []))
       .catch(console.error);
 
-    // Recuperar Sessão
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -154,7 +132,7 @@ export default function ImportPage() {
               setServerStatus(currentStatus);
               if (currentStatus.status === 'F' || currentStatus.status === 'I') {
                 setIsPolling(false);
-                setStep('results'); // Transição para a tela de resultados
+                setStep('results');
               }
             }
           }
@@ -164,30 +142,92 @@ export default function ImportPage() {
     return () => clearInterval(interval);
   }, [isPolling, serverMailingId]);
 
-  // --- LÓGICA PRINCIPAL ---
   const handleLoadAudience = async () => {
-    if (!serverStatus?.download_results?.[0]?.link) {
-      alert("Mailing processado, mas o link para download do resultado não foi encontrado.");
+    if (!serverStatus?.download_results || serverStatus.download_results.length === 0) {
+      alert("Links de processamento não encontrados na resposta da API.");
       return;
     }
 
     try {
       setStep('loading_audience');
-      setLogs(prev => [`[SYSTEM] Baixando e processando mailing higienizado...`, ...prev]);
-      const processedMailingUrl = serverStatus.download_results[0].link;
-      const parsed = await downloadAndParseCSV(processedMailingUrl);
+      setLogs(prev => [`[SYSTEM] Aguardando API Robbu gerar relatórios analíticos...`, ...prev]);
+      
+      // ESPERA ESTRATÉGICA PARA O BANCO DE DADOS DA INVENIO
+      await new Promise(resolve => setTimeout(resolve, 8000));
 
-      if (parsed && parsed.data) {
-        setContactsToSend(parsed.data);
+      const downloadResults = serverStatus.download_results;
+      const originalFile = downloadResults.find(r => r.name.includes("Arquivo Importado")) || downloadResults[0];
+
+      // 1. Baixa Base
+      const parsed = await downloadAndParseCSV(originalFile.link);
+      let finalContacts = parsed.data;
+
+      // 2. Remove Rejeitadas
+      const rejectedFile = downloadResults.find(r => r.name.includes("Rejeitadas"));
+      if (rejectedFile && rejectedFile.link) {
+          setLogs(prev => [`[SYSTEM] Removendo linhas inválidas/rejeitadas...`, ...prev]);
+          const rejectedParsed = await downloadAndParseCSV(rejectedFile.link);
+          const rejectedIndices = new Set(
+              rejectedParsed.data
+                  .map(row => parseInt(row['Número da Linha']) - 2)
+                  .filter(idx => !isNaN(idx))
+          );
+          finalContacts = finalContacts.filter((_, index) => !rejectedIndices.has(index));
+      }
+
+      // 3. Verifica e Anexa o Robbu Verify (Com loop de retentativa)
+      const verifyFile = downloadResults.find(r => r.name.includes("Verify"));
+      if (verifyFile && verifyFile.link) {
+          setLogs(prev => [`[SYSTEM] Extraindo score do Robbu Verify...`, ...prev]);
+          
+          let verifyData = [];
+          for (let i = 0; i < 3; i++) {
+              const verifyParsed = await downloadAndParseCSV(verifyFile.link);
+              if (verifyParsed.data && verifyParsed.data.length > 0) {
+                  verifyData = verifyParsed.data;
+                  break;
+              }
+              setLogs(prev => [`[SYSTEM] Verify ainda não pronto (tentativa ${i+1}/3). Aguardando...`, ...prev]);
+              await new Promise(r => setTimeout(r, 4000));
+          }
+
+          finalContacts = finalContacts.map(contact => {
+              const contactPhone = String(contact.VALOR_DO_REGISTRO || contact.TELEFONE || '').replace(/\D/g, '');
+              const contactId = String(contact.CPFCNPJ || '').replace(/\D/g, '');
+              
+              const matchedVerify = verifyData.find(v => {
+                  const vPhone = `${v.DDD || ''}${v.Número || ''}`.replace(/\D/g, '');
+                  const vId = String(v.Identificação || '').replace(/\D/g, '');
+                  return (contactPhone && vPhone === contactPhone) || (contactId && vId === contactId);
+              });
+              return { ...contact, 'Robbu Verify': matchedVerify ? matchedVerify['Robbu Verify'] : '' };
+          });
+      }
+
+      // 4. FORÇA BRUTA: Remover E-mails que burlaram a barreira
+      finalContacts = finalContacts.filter(contact => {
+        const rawDest = String(contact.VALOR_DO_REGISTRO || contact.TELEFONE || '');
+        return !rawDest.includes('@');
+      });
+
+      if (finalContacts.length > 0) {
+        setContactsToSend(finalContacts);
         setStep('campaign');
-        setLogs(prev => [`[SYSTEM] ${parsed.data.length} contatos carregados e prontos para disparo.`, ...prev]);
+        setLogs(prev => [`[SYSTEM] Higienização concluída! ${finalContacts.length} contatos prontos para disparo.`, ...prev]);
 
-        // Carrega as filas do Dashboard e o Private Token
         const savedQueues = JSON.parse(localStorage.getItem(QUEUES_STORAGE_KEY) || '[]');
         setDashboardQueues(savedQueues);
         configService.getSettings().then(settings => handlePayloadChange('values.invenioPrivateToken', settings.private_token));
+      } else {
+          alert("Todos os contatos foram rejeitados pela Invenio ou eram E-mails inválidos.");
+          setStep('results');
       }
-    } catch (error) { alert("Erro ao ler CSV local."); }
+
+    } catch (error) { 
+      console.error(error);
+      alert("Erro ao ler CSV da API."); 
+      setStep('results');
+    }
   };
 
   const resetAll = () => {
@@ -207,7 +247,6 @@ export default function ImportPage() {
       formData.append('wallet_id', uploadForm.wallet_id);
       formData.append('file', selectedFile);
 
-      // Toggles da Etapa 1
       formData.append('wallet_unique_confirmation', uploadForm.wallet_unique_confirmation);
       formData.append('clear_hashtag', uploadForm.clear_hashtag);
       formData.append('robbu_verify', uploadForm.robbu_verify);
@@ -238,7 +277,6 @@ export default function ImportPage() {
     const delayMs = (60 / payloadOptions.speed) * 1000;
     let currentIdx = runStatus.sent + runStatus.errors;
 
-    // Faz uma cópia local das filas para manipular durante o disparo
     let queues = JSON.parse(localStorage.getItem(QUEUES_STORAGE_KEY) || '[]');
     const queueIndex = queues.findIndex(q => q.id === selectedQueueId);
     if (queueIndex === -1) {
@@ -253,18 +291,15 @@ export default function ImportPage() {
 
       if (!contact.VALOR_DO_REGISTRO && !contact.TELEFONE) { currentIdx++; continue; }
 
-      // Lógica de seleção e rotação de bloco
       if (currentQueue.status === 'paused' || !currentQueue.blocks || currentQueue.blocks.length === 0) {
         setLogs(p => [`FILA PAUSADA. Disparos interrompidos.`, ...p]);
-        break; // Sai do loop se a fila for pausada ou não tiver blocos
+        break; 
       }
 
       let activeBlock = currentQueue.blocks[currentQueue.activeBlockIndex];
       if (activeBlock.currentReports >= activeBlock.config.reportLimit) {
-        // Rotaciona para o próximo bloco
         const nextBlockIndex = currentQueue.activeBlockIndex + 1;
         if (nextBlockIndex >= currentQueue.blocks.length) {
-          // Não há mais blocos, pausa a fila
           queues[queueIndex].status = 'paused';
           setLogs(p => [`[SYSTEM] Limite de todos os blocos atingido. Fila pausada.`, ...p]);
           localStorage.setItem(QUEUES_STORAGE_KEY, JSON.stringify(queues));
@@ -275,11 +310,9 @@ export default function ImportPage() {
         setLogs(p => [`[SYSTEM] Rotacionando para o bloco: ${activeBlock.line.phone}`, ...p]);
       }
 
-      // Monta o payload com dados do bloco ativo
       const dynamicPayloadOptions = JSON.parse(JSON.stringify(payloadOptions));
       dynamicPayloadOptions.values.source.phoneNumber = activeBlock.line.phone.replace(/\D/g, '');
       dynamicPayloadOptions.values.templateName = activeBlock.template.name;
-      // Força a inclusão do templateName no payload, já que ele vem do bloco.
       dynamicPayloadOptions.include.templateName = true;
 
       try {
@@ -292,7 +325,6 @@ export default function ImportPage() {
           const newTotalSent = (currentStats.messagesSent || 0) + 1;
           localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify({ ...currentStats, messagesSent: newTotalSent }));
           setLogs(p => [`OK: ${contact.NOME_CLIENTE || 'Lead'}`, ...p].slice(0, 50));
-          // Incrementa o report do bloco
           queues[queueIndex].blocks[currentQueue.activeBlockIndex].currentReports++;
         } else {
           setRunStatus(p => ({ ...p, errors: p.errors + 1 }));
@@ -300,7 +332,7 @@ export default function ImportPage() {
         }
       } catch (e) { setRunStatus(p => ({ ...p, errors: p.errors + 1 })); }
 
-      localStorage.setItem(QUEUES_STORAGE_KEY, JSON.stringify(queues)); // Salva o estado atualizado da fila
+      localStorage.setItem(QUEUES_STORAGE_KEY, JSON.stringify(queues));
       await new Promise(r => setTimeout(r, delayMs));
       currentIdx++;
     }
@@ -406,12 +438,12 @@ export default function ImportPage() {
             ))}
           </div>
           <button onClick={handleLoadAudience} className="w-full bg-green-600 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-green-700">
-            Carregar Audiência e Iniciar Etapa 3 <ArrowRight />
+            Higienizar e Iniciar Etapa 3 <ArrowRight />
           </button>
         </section>
       )}
 
-      {step === 'loading_audience' && <div className="text-center p-8 bg-white rounded-lg shadow-sm"><Loader2 className="animate-spin inline-block" /></div>}
+      {step === 'loading_audience' && <div className="text-center p-8 bg-white rounded-lg shadow-sm"><Loader2 className="animate-spin inline-block mx-auto mb-4" /><p className="text-slate-600 font-bold">Extraindo Analíticos e Higienizando Base...</p></div>}
 
       {step === 'campaign' && (
         <section className="bg-white p-6 rounded-xl shadow-lg border border-blue-100 animate-fade-in-up">
@@ -421,7 +453,7 @@ export default function ImportPage() {
               3. Configuração e Disparo
             </h2>
             <div className="text-right">
-              <span className="block text-xs text-slate-500 uppercase font-bold">Contatos</span>
+              <span className="block text-xs text-slate-500 uppercase font-bold">Contatos Prontos</span>
               <span className="text-3xl font-bold text-green-600">{contactsToSend.length}</span>
             </div>
           </div>
@@ -451,7 +483,6 @@ export default function ImportPage() {
                 <Checkbox label="Assunto do Email" checked={payloadOptions.include.emailSubject} onChange={v => handlePayloadChange('include.emailSubject', v)} />
                 <input className="w-full border p-1 rounded text-sm" value={payloadOptions.values.emailSubject} onChange={e => handlePayloadChange('values.emailSubject', e.target.value)} disabled={!payloadOptions.include.emailSubject} />
 
-                {/* O nome do template agora é definido pelo bloco da fila, este campo é mantido para compatibilidade com outros fluxos se necessário */}
                 <Checkbox label="Nome do Template (Manual)" checked={payloadOptions.include.templateName} onChange={v => handlePayloadChange('include.templateName', v)} disabled={!!selectedQueueId} />
                 <input className="w-full border p-1 rounded text-sm" value={payloadOptions.values.templateName} onChange={e => handlePayloadChange('values.templateName', e.target.value)} disabled={!payloadOptions.include.templateName || !!selectedQueueId} placeholder={selectedQueueId ? "Definido pelo bloco da fila" : "template_name"} />
               </PayloadSection>
@@ -532,7 +563,6 @@ const PayloadSection = ({ title, icon, children }) => (
     <div className="pl-8 space-y-2">{children}</div>
   </div>
 );
-
 
 const Toggle = ({ label, checked, onChange, disabled }) => (
   <label className={`flex items-center justify-between cursor-pointer ${disabled ? 'opacity-50' : ''}`}>

@@ -276,7 +276,8 @@ export const AddBlockModal = ({ queueId, clientId, onClose, onSaveBlock, initial
                 <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
                     <label className="text-xs font-bold text-slate-700 block mb-2">Filtro de Propensão (Selecione as desejadas ou deixe vazio para todas)</label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {['Altíssima Propensão', 'Alta Propensão', 'Média Propensão', 'Baixa Propensão', 'Baixíssima Propensão', 'Sem Propensão – Sem Conta WhatsApp'].map(prop => (
+                        {/* OPÇÃO SEM WHATSAPP REMOVIDA PARA EVITAR SELEÇÃO INDEVIDA */}
+                        {['Altíssima Propensão', 'Alta Propensão', 'Média Propensão', 'Baixa Propensão', 'Baixíssima Propensão'].map(prop => (
                             <label key={prop} className="flex items-center gap-2 cursor-pointer bg-white border border-slate-200 p-2 rounded-lg hover:border-blue-400 transition-colors shadow-sm">
                                 <input type="checkbox" className="accent-blue-600 w-4 h-4" checked={verifyFilters.includes(prop)} onChange={(e) => {
                                     if (e.target.checked) setVerifyFilters([...verifyFilters, prop]);
@@ -312,7 +313,6 @@ export const AddBlockModal = ({ queueId, clientId, onClose, onSaveBlock, initial
                 </button>
             </div>
             
-            {/* Invocação do Picker Modal passando os novos parâmetros */}
             {isTemplatePickerOpen && <TemplatePickerModal wabaId={selectedWabaId} clientId={clientId} onClose={() => setIsTemplatePickerOpen(false)} onSelect={(t) => { setSelectedTemplate(t); setIsTemplatePickerOpen(false); }} />}
         </div>,
         document.body

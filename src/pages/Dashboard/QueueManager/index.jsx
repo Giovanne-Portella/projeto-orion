@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Play, Pause, Database, BarChart2, Zap, ArrowLeft, UploadCloud, FileText, ShieldAlert, Activity, CheckCheck, Trash2, Settings, Check, ListFilter, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { Play, Pause, Database, BarChart2, Zap, ArrowLeft, UploadCloud, FileText, ShieldAlert, Activity, CheckCheck, Trash2, Settings, Check, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
 import { mailingService } from '../../../services/api';
 import { saveBlockReport, clearBlockReports, MOCK_MAILING } from '../../../utils/reportUtils';
 
 import { StatCard, CreateQueueForm, QueueCard } from './components/Cards';
 import { AuthModal, AddBlockModal, BlockDetailModal } from './modals/QueueModals';
-import { InvenioUploadModal, MailingUploadCleanModal, SendMessageConfigModal } from './modals/MailingModals';
+// IMPORT ATUALIZADO: Removido o MailingUploadCleanModal que não existe mais
+import { InvenioUploadModal, SendMessageConfigModal } from './modals/MailingModals';
 
 export default function QueueManager() {
     const { clientId } = useParams();
@@ -29,7 +30,6 @@ export default function QueueManager() {
     const [blockToEdit, setBlockToEdit] = useState(null); 
     const [selectedBlockDetail, setSelectedBlockDetail] = useState(null);
     const [isApiConfigModalOpen, setApiConfigModalOpen] = useState(false);
-    const [isValidatorModalOpen, setValidatorModalOpen] = useState(false);
     const [activeMailing, setActiveMailing] = useState(null);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
@@ -125,8 +125,20 @@ export default function QueueManager() {
 
     const handleDeleteMailing = (id) => { if (window.confirm('Excluir esta base? Filas atreladas a ela irão falhar.')) setMailings(prev => prev.filter(m => m.id !== id)); };
     const handleSaveMailingConfig = (id, config) => { setMailings(prev => prev.map(m => m.id === id ? { ...m, apiConfig: config } : m)); setApiConfigModalOpen(false); };
-    const handleSaveCleanedMailing = (id, validContacts, newName) => { setMailings(prev => prev.map(m => m.id === id ? { ...m, name: newName, data: validContacts, count: validContacts.length, isCleaned: true } : m)); };
-    const handleInvenioUploadSuccess = (serverResult, fileData, fileName) => { setMailings(prev => [...prev, { id: serverResult.id, name: fileName, uploadDate: new Date().toLocaleString(), count: fileData.length, data: fileData, apiConfig: null, serverData: serverResult, isCleaned: false }]); };
+    
+    // ATUALIZADO: Agora a base já entra com isCleaned = true pois a limpeza é automática!
+    const handleInvenioUploadSuccess = (serverResult, fileData, fileName) => { 
+        setMailings(prev => [...prev, { 
+            id: serverResult.id, 
+            name: fileName, 
+            uploadDate: new Date().toLocaleString(), 
+            count: fileData.length, 
+            data: fileData, 
+            apiConfig: null, 
+            serverData: serverResult, 
+            isCleaned: true // Força TRUE pois higienizou automaticamente
+        }]); 
+    };
 
     const handleRetryMailing = (blockName, failedContactsArray) => {
         setMailings(prev => [{ id: `m-${Date.now()}`, name: `Retentativa (${failedContactsArray.length} contatos) - ${blockName}`, uploadDate: new Date().toLocaleString(), count: failedContactsArray.length, data: failedContactsArray, apiConfig: null, serverData: null, isCleaned: true }, ...prev]);
@@ -157,7 +169,7 @@ export default function QueueManager() {
     };
 
     // ========================================================================
-    // MOTOR DE DISPARO TOTALMENTE INDEPENDENTE E CONCORRENTE
+    // MOTOR DE DISPARO
     // ========================================================================
     const runProductionQueue = async (queueId) => {
         activeRuns.current[queueId] = true;
@@ -194,7 +206,6 @@ export default function QueueManager() {
                 break;
             }
 
-            // Seleciona o bloco rodando da vez (Round Robin)
             currentQueue.rrIndex = currentQueue.rrIndex !== undefined ? currentQueue.rrIndex : 0;
             let rbIndex = currentQueue.rrIndex % runningBlocks.length;
             let activeBlock = runningBlocks[rbIndex];
@@ -205,11 +216,8 @@ export default function QueueManager() {
             let contactFound = false;
             let targetContact = null;
             let targetIdx = -1;
-            
-            // CORREÇÃO: Variável trazida para escopo maior para salvar no relatório final
             let targetContactVerify = ""; 
 
-            // Varre o CSV a partir do ponteiro deste bloco específico
             while (activeBlock.currentIndex < contacts.length) {
                 let idx = activeBlock.currentIndex;
                 
@@ -228,7 +236,7 @@ export default function QueueManager() {
                 if (acceptsFilter) {
                     targetContact = contact;
                     targetIdx = idx;
-                    targetContactVerify = contactVerify; // Armazena a propensão com segurança!
+                    targetContactVerify = contactVerify;
                     contactFound = true;
                     break;
                 } else {
@@ -243,7 +251,6 @@ export default function QueueManager() {
                     }
 
                     if (!anyBlockAccepts) {
-                        // Ninguém vai processar esse cara, marca consumido e relata pulo.
                         currentQueue.consumed[idx] = true;
                         saveBlockReport(clientId, activeBlock.id, {
                             Nome: contact.NOME_CLIENTE || "", Telefone: contact.VALOR_DO_REGISTRO || "", CPF: contact.CPFCNPJ || "",
@@ -256,7 +263,6 @@ export default function QueueManager() {
             }
 
             if (!contactFound) {
-                // Bloco chegou ao final dos contatos úteis para ele
                 activeBlock.status = activeBlock.hasError ? 'error' : 'completed';
                 currentQueue.blocks[blockObjIndex] = activeBlock;
                 
@@ -272,7 +278,6 @@ export default function QueueManager() {
                 continue; 
             }
 
-            // --- Disparo Real ---
             let limit = Math.floor(activeBlock.config.bmCapacity * (activeBlock.config.maxPercentage / 100));
             
             let messageText = targetContact.MENSAGEM || config.values.text || "";
@@ -283,7 +288,7 @@ export default function QueueManager() {
                 attendantUserName: config.include.discardSettings ? (config.values.attendantUserName || "") : "",
                 templateParameters: config.include.templateParameters ? config.templateParams.map(p => p.column ? String(targetContact[p.column]) : "") : [],
                 source: { countryCode: 55, phoneNumber: Number(activeBlock.line.phone.replace(/\D/g, '')), prospect: false },
-                destination: { countryCode: 55, phoneNumber: Number(String(targetContact.VALOR_DO_REGISTRO || "").replace(/\D/g, '')), email: "" }
+                destination: { countryCode: 55, phoneNumber: Number(String(targetContact.VALOR_DO_REGISTRO || targetContact.TELEFONE || "").replace(/\D/g, '')), email: "" }
             };
 
             if (config.include.contact) {
@@ -317,7 +322,6 @@ export default function QueueManager() {
                 activeBlock.hasError = true;
             }
 
-            // CORREÇÃO APLICADA AQUI: Utilizamos o targetContactVerify sem dar erro
             saveBlockReport(clientId, activeBlock.id, {
                 Nome: targetContact.NOME_CLIENTE || "", Telefone: payload.destination.phoneNumber, CPF: targetContact.CPFCNPJ || "", Waba: activeBlock.waba.description,
                 Linha: activeBlock.line.phone, Template: activeBlock.template.name, Segmento: mailing.name, Status: 'Disparado', Propensão: targetContactVerify || 'Sem Propensão', Erro_API: apiStatus, Response: apiResponseTxt, _originalContact: targetContact
@@ -330,7 +334,7 @@ export default function QueueManager() {
                 activeBlock.status = activeBlock.hasError ? 'error' : 'completed';
             }
 
-            currentQueue.rrIndex = currentQueue.rrIndex + 1; // Avança a roleta para outro bloco rodar
+            currentQueue.rrIndex = currentQueue.rrIndex + 1; 
             currentQueue.blocks[blockObjIndex] = activeBlock;
 
             const allBlocksDoneFinal = currentQueue.blocks.every(b => b.status === 'completed' || b.status === 'error');
@@ -462,7 +466,7 @@ export default function QueueManager() {
                     <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-xl flex justify-between items-center">
                         <div>
                             <h2 className="text-xl font-bold text-emerald-800 flex items-center gap-2"><Database size={20} /> Bases do Cliente</h2>
-                            <p className="text-emerald-600 text-sm mt-1">Importe via Invenio API, limpe e configure o payload SendMessage.</p>
+                            <p className="text-emerald-600 text-sm mt-1">Importe via Invenio API, nós higienizamos automaticamente.</p>
                         </div>
                         <button onClick={() => setIsUploadModalOpen(true)} className="bg-emerald-600 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 hover:bg-emerald-700 shadow-md"><UploadCloud size={20} /> Importar Público</button>
                     </div>
@@ -480,9 +484,10 @@ export default function QueueManager() {
                                             {m.serverData ? <CheckCircle size={14} className="text-green-500" /> : <AlertTriangle size={14} className="text-yellow-500" />}
                                             <span className={m.serverData ? 'text-green-700' : 'text-slate-500'}>Invenio: {m.serverData ? 'Processado' : 'Apenas Local'}</span>
                                         </div>
+                                        {/* Status de Base Limpa Ajustado */}
                                         <div className="flex items-center gap-1.5 text-xs font-bold w-max">
                                             {m.isCleaned ? <CheckCircle size={14} className="text-green-500" /> : <AlertTriangle size={14} className="text-orange-500 animate-pulse" />}
-                                            <span className={m.isCleaned ? 'text-green-700' : 'text-orange-600'}>Validator: {m.isCleaned ? 'Limpo (Upload OK)' : 'Aguardando Upload Limpo'}</span>
+                                            <span className={m.isCleaned ? 'text-green-700' : 'text-orange-600'}>Status: {m.isCleaned ? 'Base Auto-Higienizada' : 'Aguardando'}</span>
                                         </div>
                                         <div className="flex items-center gap-1.5 text-xs font-bold w-max">
                                             {m.apiConfig ? <CheckCircle size={14} className="text-blue-500" /> : <AlertTriangle size={14} className="text-red-500 animate-pulse" />}
@@ -491,9 +496,9 @@ export default function QueueManager() {
                                     </div>
                                 </div>
                                 <div className="bg-slate-50 border-t border-slate-200 p-3 grid grid-cols-2 gap-2">
-                                    <button onClick={() => { setActiveMailing(m); setValidatorModalOpen(true); }} className="bg-white border border-slate-300 text-slate-700 font-bold text-xs py-2 rounded-lg flex items-center justify-center gap-2 hover:text-blue-600 shadow-sm"><ListFilter size={14} /> Base Limpa</button>
-                                    <button onClick={() => { setActiveMailing(m); setApiConfigModalOpen(true); }} className="bg-white border border-slate-300 text-slate-700 font-bold text-xs py-2 rounded-lg flex items-center justify-center gap-2 hover:text-blue-600 shadow-sm"><Settings size={14} /> Setup API</button>
-                                    <button onClick={() => handleDeleteMailing(m.id)} className="col-span-2 border border-slate-200 text-slate-400 py-1.5 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-xs flex justify-center items-center gap-1"><Trash2 size={14} /> Excluir Base</button>
+                                    {/* Removido o botão de Limpeza Manual daqui! */}
+                                    <button onClick={() => { setActiveMailing(m); setApiConfigModalOpen(true); }} className="col-span-1 bg-white border border-slate-300 text-slate-700 font-bold text-xs py-2 rounded-lg flex items-center justify-center gap-2 hover:text-blue-600 shadow-sm"><Settings size={14} /> Setup API</button>
+                                    <button onClick={() => handleDeleteMailing(m.id)} className="col-span-1 border border-slate-200 text-slate-400 py-1.5 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-xs flex justify-center items-center gap-1"><Trash2 size={14} /> Excluir Base</button>
                                 </div>
                             </div>
                         ))}
@@ -532,7 +537,9 @@ export default function QueueManager() {
             {isAddBlockModalOpen && <AddBlockModal queueId={queueToAddTo} clientId={clientId} initialBlock={blockToEdit} allQueues={prodQueues} onClose={() => { setAddBlockModalOpen(false); setBlockToEdit(null); }} onSaveBlock={handleSaveBlock} />}
             {selectedBlockDetail && <BlockDetailModal clientId={clientId} block={selectedBlockDetail} onClose={() => setSelectedBlockDetail(null)} onRetryMailing={handleRetryMailing} />}
             {isUploadModalOpen && <InvenioUploadModal clientId={clientId} segments={segments} onClose={() => setIsUploadModalOpen(false)} onSuccess={handleInvenioUploadSuccess} />}
-            {isValidatorModalOpen && activeMailing && <MailingUploadCleanModal mailing={activeMailing} onClose={() => setValidatorModalOpen(false)} onClean={handleSaveCleanedMailing} />}
+            
+            {/* Removido o renderizador do Modal antigo daqui */}
+            
             {isApiConfigModalOpen && activeMailing && <SendMessageConfigModal mailing={activeMailing} onClose={() => setApiConfigModalOpen(false)} onSave={handleSaveMailingConfig} />}
         </div>
     );

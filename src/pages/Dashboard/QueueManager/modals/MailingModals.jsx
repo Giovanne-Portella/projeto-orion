@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, CheckCircle, ListFilter, Link as LinkIcon, Settings, Trash2 } from 'lucide-react';
+import { X, Loader2, CheckCircle, Settings, Trash2 } from 'lucide-react';
 import { mailingService } from '../../../../services/api';
 import { parseCSV, downloadAndParseCSV } from '../../../../utils/csvParser';
 import { LGPD_OPTIONS, VERIFY_LEVELS } from '../../../../utils/reportUtils';
@@ -55,13 +55,83 @@ export const InvenioUploadModal = ({ segments, onClose, onSuccess, clientId }) =
         } catch (error) { setStatus('error'); alert("Falha na importação."); }
     };
 
+    const processAutomatedClean = async (mailingResponse, localParsedData) => {
+        let finalContacts = [...localParsedData];
+        const downloadResults = mailingResponse.download_results || [];
+
+        // DELAY ESTRATÉGICO: Aguarda 8 segundos para a Invenio gerar as Views no banco e disponibilizar os dados no .ashx
+        await new Promise(r => setTimeout(r, 8000));
+
+        // A. Remover Linhas Rejeitadas
+        const rejectedFile = downloadResults.find(r => r.name.includes("Rejeitadas"));
+        if (rejectedFile && rejectedFile.link) {
+            try {
+                const rejectedParsed = await downloadAndParseCSV(rejectedFile.link);
+                const rejectedIndices = new Set(
+                    rejectedParsed.data
+                        .map(row => parseInt(row['Número da Linha']) - 2)
+                        .filter(idx => !isNaN(idx))
+                );
+                finalContacts = finalContacts.filter((_, index) => !rejectedIndices.has(index));
+            } catch (err) {
+                console.error("Aviso: Erro ao baixar linhas rejeitadas", err);
+            }
+        }
+
+        // B. Anexar dados do Robbu Verify
+        const verifyFile = downloadResults.find(r => r.name.includes("Verify"));
+        if (verifyFile && verifyFile.link) {
+            try {
+                let verifyData = [];
+                // SISTEMA DE RETENTATIVA: Tenta até 3 vezes se o arquivo vier vazio
+                for (let i = 0; i < 3; i++) {
+                    const verifyParsed = await downloadAndParseCSV(verifyFile.link);
+                    if (verifyParsed.data && verifyParsed.data.length > 0) {
+                        verifyData = verifyParsed.data;
+                        break;
+                    }
+                    // Se estiver vazio, aguarda mais 4 segundos
+                    await new Promise(r => setTimeout(r, 4000));
+                }
+
+                finalContacts = finalContacts.map(contact => {
+                    const contactPhone = String(contact.VALOR_DO_REGISTRO || contact.TELEFONE || '').replace(/\D/g, '');
+                    const contactId = String(contact.CPFCNPJ || '').replace(/\D/g, '');
+                    
+                    const matchedVerify = verifyData.find(v => {
+                        const vPhone = `${v.DDD || ''}${v.Número || ''}`.replace(/\D/g, '');
+                        const vId = String(v.Identificação || '').replace(/\D/g, '');
+                        return (contactPhone && vPhone === contactPhone) || (contactId && vId === contactId);
+                    });
+                    
+                    return { ...contact, 'Robbu Verify': matchedVerify ? matchedVerify['Robbu Verify'] : '' };
+                });
+            } catch (err) {
+                console.error("Aviso: Erro ao baixar dados do Verify", err);
+            }
+        }
+
+        // C. FORÇA BRUTA DE REMOÇÃO: Garantir que emails (que têm @) não passem de jeito nenhum
+        finalContacts = finalContacts.filter(contact => {
+            const rawDest = String(contact.VALOR_DO_REGISTRO || contact.TELEFONE || '');
+            return !rawDest.includes('@');
+        });
+
+        return finalContacts;
+    };
+
     const pollMailingStatus = async (id) => {
         const check = async () => {
             try {
                 const res = await mailingService.checkStatus([id], clientId);
                 if (res[0].status === 'I') {
+                    setStatus('cleaning');
+                    const finalContacts = await processAutomatedClean(res[0], parsedData);
                     setStatus('success');
-                    setTimeout(() => { onSuccess(res[0], parsedData, file.name); onClose(); }, 2000);
+                    setTimeout(() => { 
+                        onSuccess(res[0], finalContacts, file.name); 
+                        onClose(); 
+                    }, 2000);
                 } else if (res[0].status === 'E') {
                     setStatus('error'); alert("A Invenio reportou Erro de formatação no arquivo.");
                 } else setTimeout(check, 3000);
@@ -75,7 +145,7 @@ export const InvenioUploadModal = ({ segments, onClose, onSuccess, clientId }) =
             <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-2xl max-h-[95vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-2xl text-slate-800">Importar Público</h3>
-                    <button onClick={onClose} disabled={status === 'polling' || status === 'uploading'} className="text-slate-400 hover:text-slate-600"><X /></button>
+                    <button onClick={onClose} disabled={['polling', 'uploading', 'cleaning'].includes(status)} className="text-slate-400 hover:text-slate-600"><X /></button>
                 </div>
 
                 {status === 'idle' || status === 'error' ? (
@@ -163,86 +233,13 @@ export const InvenioUploadModal = ({ segments, onClose, onSuccess, clientId }) =
                     <div className="text-center py-16">
                         {status === 'success' ? (
                             <><CheckCircle size={56} className="text-green-500 mx-auto mb-4 animate-bounce" /><h3 className="font-bold text-2xl text-slate-800">Processado!</h3></>
+                        ) : status === 'cleaning' ? (
+                            <><Loader2 size={56} className="text-emerald-500 mx-auto mb-4 animate-spin" /><h3 className="font-bold text-xl text-slate-800">Extraindo Analítico...</h3><p className="text-sm text-slate-500 mt-2">Aguardando Robbu Verify processar os dados finais.</p></>
                         ) : (
                             <><Loader2 size={56} className="text-blue-500 mx-auto mb-4 animate-spin" /><h3 className="font-bold text-xl text-slate-800">{status === 'uploading' ? 'Enviando arquivo...' : 'Processando na Invenio...'}</h3><p className="text-sm text-slate-500 mt-2">Aguarde a finalização.</p></>
                         )}
                     </div>
                 )}
-            </div>
-        </div>,
-        document.body
-    );
-};
-
-export const MailingUploadCleanModal = ({ mailing, onClose, onClean }) => {
-    const [file, setFile] = useState(null);
-    const [loading, setLoading] = useState(false);
-
-    const processFile = async () => {
-        if (!file) return alert("Selecione o arquivo CSV limpo para upload.");
-        setLoading(true);
-        try {
-            const parsed = await parseCSV(file);
-            let finalContacts = parsed.data;
-            const verifyFile = mailing.serverData?.download_results?.find(r => r.name.includes("Robbu Verify"));
-
-            if (verifyFile && verifyFile.link) {
-                try {
-                    const verifyParsed = await downloadAndParseCSV(verifyFile.link);
-                    const verifyData = verifyParsed.data;
-
-                    finalContacts = finalContacts.map(contact => {
-                        const contactPhone = String(contact.VALOR_DO_REGISTRO || '').replace(/\D/g, '');
-                        const contactId = String(contact.CPFCNPJ || '').replace(/\D/g, '');
-                        const matchedVerify = verifyData.find(v => {
-                            const vPhone = `${v.DDD || ''}${v.Número || ''}`.replace(/\D/g, '');
-                            const vId = String(v.Identificação || '').replace(/\D/g, '');
-                            return (contactPhone && vPhone === contactPhone) || (contactId && vId === contactId);
-                        });
-                        return { ...contact, 'Robbu Verify': matchedVerify ? matchedVerify['Robbu Verify'] : '' };
-                    });
-                } catch (verifyErr) { console.error("Aviso: Falha ao cruzar os dados do Verify.", verifyErr); }
-            }
-
-            setTimeout(() => {
-                onClean(mailing.id, finalContacts, file.name);
-                alert(`Base limpa inserida com sucesso! ${finalContacts.length} contatos prontas para disparo.`);
-                onClose();
-            }, 800);
-        } catch (error) { alert("Erro ao ler o arquivo CSV limpo."); } finally { setLoading(false); }
-    };
-
-    return createPortal(
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] animate-in fade-in p-4">
-            <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-lg">
-                <div className="flex justify-between mb-4">
-                    <h3 className="font-bold text-xl flex items-center gap-2"><ListFilter className="text-blue-600" /> Inserir Base Limpa</h3>
-                    <button onClick={onClose}><X /></button>
-                </div>
-                <p className="text-sm text-slate-500 mb-6">Acesse os links da Invenio, higienize sua base localmente e faça o upload do arquivo final aqui.</p>
-
-                {mailing.serverData && mailing.serverData.download_results && (
-                    <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg shadow-inner">
-                        <p className="text-xs font-bold text-blue-800 mb-2 uppercase tracking-wide">Links Gerados (API Invenio):</p>
-                        <div className="space-y-2">
-                            {mailing.serverData.download_results.map((r, i) => (
-                                <a key={i} href={r.link} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-blue-600 hover:underline bg-white p-2 rounded border border-blue-100 shadow-sm"><LinkIcon size={14} /> {r.name}</a>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                <div className="border-2 border-dashed border-emerald-300 bg-emerald-50 p-6 rounded-xl flex flex-col items-center">
-                    <CheckCircle className="text-emerald-500 mb-2" size={32} />
-                    <label className="text-sm font-bold text-center w-full cursor-pointer text-emerald-800">
-                        Fazer upload do CSV final limpo
-                        <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files[0])} className="text-xs block mt-3 mx-auto text-emerald-600" />
-                    </label>
-                </div>
-
-                <button onClick={processFile} disabled={loading || !file} className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold mt-6 hover:bg-emerald-700 disabled:opacity-50 transition-colors flex justify-center items-center gap-2">
-                    {loading ? <><Loader2 size={18} className="animate-spin" /> Carregando...</> : 'Confirmar Base Limpa'}
-                </button>
             </div>
         </div>,
         document.body
