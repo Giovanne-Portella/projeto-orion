@@ -140,7 +140,7 @@ export const buildMessagePayload = (contactRow, payloadOptions) => {
   return payload;
 };
 
-// ATUALIZADO: Recebe o clientId para injetar o token correto do ambiente
+// Recebe o clientId para injetar o token correto do ambiente
 export const sendSingleMessage = async (payload, clientId) => {
   try {
     // Busca o token específico deste cliente/card no localStorage
