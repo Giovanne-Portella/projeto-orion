@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, CheckCircle, Settings, Trash2 } from 'lucide-react';
+import { X, Loader2, CheckCircle, Settings, Trash2, Download, Link as LinkIcon, FileText, Activity, ShieldAlert, Eye, ArrowLeft } from 'lucide-react';
 import { mailingService } from '../../../../services/api';
 import { parseCSV, downloadAndParseCSV } from '../../../../utils/csvParser';
 import { LGPD_OPTIONS, VERIFY_LEVELS } from '../../../../utils/reportUtils';
@@ -59,7 +59,7 @@ export const InvenioUploadModal = ({ segments, onClose, onSuccess, clientId }) =
         let finalContacts = [...localParsedData];
         const downloadResults = mailingResponse.download_results || [];
 
-        // DELAY ESTRATÉGICO: Aguarda 8 segundos para a Invenio gerar as Views no banco e disponibilizar os dados no .ashx
+        // DELAY ESTRATÉGICO
         await new Promise(r => setTimeout(r, 8000));
 
         // A. Remover Linhas Rejeitadas
@@ -73,9 +73,7 @@ export const InvenioUploadModal = ({ segments, onClose, onSuccess, clientId }) =
                         .filter(idx => !isNaN(idx))
                 );
                 finalContacts = finalContacts.filter((_, index) => !rejectedIndices.has(index));
-            } catch (err) {
-                console.error("Aviso: Erro ao baixar linhas rejeitadas", err);
-            }
+            } catch (err) { console.error("Aviso: Erro ao baixar linhas rejeitadas", err); }
         }
 
         // B. Anexar dados do Robbu Verify
@@ -83,14 +81,12 @@ export const InvenioUploadModal = ({ segments, onClose, onSuccess, clientId }) =
         if (verifyFile && verifyFile.link) {
             try {
                 let verifyData = [];
-                // SISTEMA DE RETENTATIVA: Tenta até 3 vezes se o arquivo vier vazio
                 for (let i = 0; i < 3; i++) {
                     const verifyParsed = await downloadAndParseCSV(verifyFile.link);
                     if (verifyParsed.data && verifyParsed.data.length > 0) {
                         verifyData = verifyParsed.data;
                         break;
                     }
-                    // Se estiver vazio, aguarda mais 4 segundos
                     await new Promise(r => setTimeout(r, 4000));
                 }
 
@@ -106,12 +102,10 @@ export const InvenioUploadModal = ({ segments, onClose, onSuccess, clientId }) =
                     
                     return { ...contact, 'Robbu Verify': matchedVerify ? matchedVerify['Robbu Verify'] : '' };
                 });
-            } catch (err) {
-                console.error("Aviso: Erro ao baixar dados do Verify", err);
-            }
+            } catch (err) { console.error("Aviso: Erro ao baixar dados do Verify", err); }
         }
 
-        // C. FORÇA BRUTA DE REMOÇÃO: Garantir que emails (que têm @) não passem de jeito nenhum
+        // C. FORÇA BRUTA DE REMOÇÃO: Garantir que emails não passem
         finalContacts = finalContacts.filter(contact => {
             const rawDest = String(contact.VALOR_DO_REGISTRO || contact.TELEFONE || '');
             return !rawDest.includes('@');
@@ -336,6 +330,213 @@ export const SendMessageConfigModal = ({ mailing, onClose, onSave }) => {
                     <button onClick={onClose} className="px-6 py-2.5 text-slate-600 font-bold hover:bg-slate-100 rounded-lg">Cancelar</button>
                     <button onClick={() => onSave(mailing.id, payloadOptions)} className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-sm hover:bg-blue-700">Salvar Payload</button>
                 </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
+// ==========================================
+// NOVO MODAL DE EXPORTAÇÃO E PRÉ-VISUALIZAÇÃO
+// ==========================================
+export const MailingDownloadModal = ({ mailing, onClose }) => {
+    
+    // Estados da Pré-visualização
+    const [previewMode, setPreviewMode] = useState(null); // null, 'clean', 'original', 'verify', 'rejected'
+    const [previewData, setPreviewData] = useState([]);
+    const [previewHeaders, setPreviewHeaders] = useState([]);
+    const [loadingPreview, setLoadingPreview] = useState(false);
+
+    const downloadCleanedBase = () => {
+        if (!mailing.data || mailing.data.length === 0) return alert("A base higienizada está vazia.");
+        
+        const headers = Object.keys(mailing.data[0]);
+        const csvContent = [
+            headers.join(";"),
+            ...mailing.data.map(row => headers.map(h => `"${String(row[h] || '').replace(/"/g, '""')}"`).join(";"))
+        ].join("\n");
+
+        const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `base_higienizada_${mailing.name}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const handlePreview = async (type, link, title) => {
+        setLoadingPreview(true);
+        setPreviewMode({ type, title });
+        try {
+            let data = [];
+            if (type === 'clean') {
+                data = mailing.data || [];
+            } else {
+                const parsed = await downloadAndParseCSV(link);
+                data = parsed.data || [];
+            }
+            
+            setPreviewHeaders(data.length > 0 ? Object.keys(data[0]) : []);
+            // Limite de 100 linhas para não travar o frontend em bases enormes
+            setPreviewData(data.slice(0, 100)); 
+        } catch (err) {
+            console.error(err);
+            alert("Erro ao carregar pré-visualização. O link pode ter expirado na API.");
+            setPreviewMode(null);
+        } finally {
+            setLoadingPreview(false);
+        }
+    };
+
+    const serverLinks = mailing.serverData?.download_results || [];
+    const originalFile = serverLinks.find(r => r.name.includes("Arquivo Importado"));
+    const rejectedFile = serverLinks.find(r => r.name.includes("Rejeitadas"));
+    const verifyFile = serverLinks.find(r => r.name.includes("Verify"));
+
+    return createPortal(
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] animate-in fade-in p-4">
+            <div className={`bg-white p-6 rounded-2xl shadow-xl w-full transition-all duration-300 ${previewMode ? 'max-w-5xl' : 'max-w-xl'}`}>
+                
+                {/* CABEÇALHO DO MODAL */}
+                <div className="flex justify-between items-start mb-6 border-b pb-4">
+                    <div className="flex items-center gap-3">
+                        {previewMode && (
+                            <button onClick={() => setPreviewMode(null)} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors">
+                                <ArrowLeft size={20} />
+                            </button>
+                        )}
+                        <div>
+                            <h3 className="font-bold text-xl text-slate-800 flex items-center gap-2">
+                                {previewMode ? <Eye className="text-blue-600" /> : <Download className="text-blue-600" />} 
+                                {previewMode ? `Visualizando: ${previewMode.title}` : 'Exportar Arquivos'}
+                            </h3>
+                            <p className="text-sm text-slate-500 mt-1 truncate max-w-sm">Base: {mailing.name}</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600"><X size={20} /></button>
+                </div>
+
+                {/* MODO PRÉ-VISUALIZAÇÃO (TABELA) */}
+                {previewMode ? (
+                    <div className="animate-in fade-in slide-in-from-right-4">
+                        {loadingPreview ? (
+                            <div className="py-20 text-center flex flex-col items-center">
+                                <Loader2 size={48} className="text-blue-500 animate-spin mb-4" />
+                                <p className="text-slate-600 font-bold">Processando dados para visualização...</p>
+                            </div>
+                        ) : previewData.length === 0 ? (
+                            <div className="py-12 text-center border-2 border-dashed border-slate-200 rounded-xl">
+                                <p className="text-slate-500 font-bold">Nenhum dado encontrado neste arquivo.</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="bg-blue-50 text-blue-800 text-xs font-bold p-3 rounded-lg border border-blue-200 mb-4 flex justify-between items-center">
+                                    <span>Para garantir performance, estamos exibindo apenas as primeiras 100 linhas deste arquivo.</span>
+                                    <span>Colunas: {previewHeaders.length}</span>
+                                </div>
+                                
+                                <div className="overflow-x-auto max-h-[60vh] overflow-y-auto border border-slate-200 rounded-xl shadow-inner">
+                                    <table className="w-full text-left text-sm text-slate-600 whitespace-nowrap">
+                                        <thead className="bg-slate-100 sticky top-0 shadow-sm z-10">
+                                            <tr>
+                                                <th className="p-3 font-bold border-b border-slate-200 text-slate-400 w-10 text-center">#</th>
+                                                {previewHeaders.map((h, i) => (
+                                                    <th key={i} className="p-3 font-bold border-b border-slate-200 text-slate-800">{h}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 bg-white">
+                                            {previewData.map((row, rowIndex) => (
+                                                <tr key={rowIndex} className="hover:bg-slate-50 transition-colors">
+                                                    <td className="p-3 text-center font-mono text-xs text-slate-400">{rowIndex + 1}</td>
+                                                    {previewHeaders.map((h, colIndex) => (
+                                                        <td key={colIndex} className="p-3 truncate max-w-[200px]" title={row[h]}>
+                                                            {row[h] || <span className="text-slate-300 italic">vazio</span>}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                ) : (
+                    /* MODO LISTA DE DOWNLOADS */
+                    <div className="space-y-3 animate-in fade-in">
+                        {/* 1. Base Higienizada da Memória */}
+                        <div className="flex items-center justify-between p-4 border border-emerald-200 bg-emerald-50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-emerald-100 p-2 rounded text-emerald-600"><CheckCircle size={20} /></div>
+                                <div>
+                                    <h4 className="font-bold text-sm text-emerald-900">Base Higienizada (Pronta)</h4>
+                                    <p className="text-xs text-emerald-700">Contatos válidos + Propensão anexada.</p>
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => handlePreview('clean', null, 'Base Higienizada')} className="bg-white border border-emerald-300 text-emerald-700 p-2 rounded hover:bg-emerald-100 transition-colors" title="Visualizar Base"><Eye size={18} /></button>
+                                <button onClick={downloadCleanedBase} className="bg-emerald-600 text-white px-4 py-2 rounded font-bold text-xs hover:bg-emerald-700 shadow-sm flex gap-2 items-center"><Download size={14} /> Baixar</button>
+                            </div>
+                        </div>
+
+                        {/* 2. Arquivo Original Invenio */}
+                        {originalFile && (
+                            <div className="flex items-center justify-between p-4 border border-slate-200 bg-slate-50 rounded-lg">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-slate-200 p-2 rounded text-slate-600"><FileText size={20} /></div>
+                                    <div>
+                                        <h4 className="font-bold text-sm text-slate-800">Arquivo Original</h4>
+                                        <p className="text-xs text-slate-500">Mailing bruto enviado no upload.</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handlePreview('original', originalFile.link, 'Arquivo Original')} className="bg-white border border-slate-300 text-slate-700 p-2 rounded hover:bg-slate-100 transition-colors" title="Visualizar"><Eye size={18} /></button>
+                                    <a href={originalFile.link} target="_blank" rel="noreferrer" className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded font-bold text-xs hover:bg-slate-100 shadow-sm flex gap-2 items-center"><LinkIcon size={14} /> Link API</a>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 3. Robbu Verify */}
+                        {verifyFile && (
+                            <div className="flex items-center justify-between p-4 border border-blue-200 bg-blue-50 rounded-lg">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-blue-100 p-2 rounded text-blue-600"><Activity size={20} /></div>
+                                    <div>
+                                        <h4 className="font-bold text-sm text-blue-900">Analítico Robbu Verify</h4>
+                                        <p className="text-xs text-blue-700">Histórico de propensão devolvido.</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handlePreview('verify', verifyFile.link, 'Analítico Verify')} className="bg-white border border-blue-300 text-blue-700 p-2 rounded hover:bg-blue-100 transition-colors" title="Visualizar"><Eye size={18} /></button>
+                                    <a href={verifyFile.link} target="_blank" rel="noreferrer" className="bg-white border border-blue-300 text-blue-700 px-4 py-2 rounded font-bold text-xs hover:bg-blue-100 shadow-sm flex gap-2 items-center"><LinkIcon size={14} /> Link API</a>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 4. Linhas Rejeitadas */}
+                        {rejectedFile && (
+                            <div className="flex items-center justify-between p-4 border border-red-200 bg-red-50 rounded-lg">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-red-100 p-2 rounded text-red-600"><ShieldAlert size={20} /></div>
+                                    <div>
+                                        <h4 className="font-bold text-sm text-red-900">Linhas Rejeitadas</h4>
+                                        <p className="text-xs text-red-700">Contatos inválidos identificados.</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handlePreview('rejected', rejectedFile.link, 'Linhas Rejeitadas')} className="bg-white border border-red-300 text-red-700 p-2 rounded hover:bg-red-100 transition-colors" title="Visualizar"><Eye size={18} /></button>
+                                    <a href={rejectedFile.link} target="_blank" rel="noreferrer" className="bg-white border border-red-300 text-red-700 px-4 py-2 rounded font-bold text-xs hover:bg-red-100 shadow-sm flex gap-2 items-center"><LinkIcon size={14} /> Link API</a>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {!serverLinks.length && (
+                            <p className="text-xs text-center text-slate-400 p-4 border border-dashed rounded mt-4">Nenhum histórico da API da Invenio vinculado a este arquivo.</p>
+                        )}
+                    </div>
+                )}
             </div>
         </div>,
         document.body

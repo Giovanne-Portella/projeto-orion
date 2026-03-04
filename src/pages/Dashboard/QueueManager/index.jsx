@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Play, Pause, Database, BarChart2, Zap, ArrowLeft, UploadCloud, FileText, ShieldAlert, Activity, CheckCheck, Trash2, Settings, Check, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { Play, Pause, Database, BarChart2, Zap, ArrowLeft, UploadCloud, FileText, ShieldAlert, Activity, CheckCheck, Trash2, Settings, Check, AlertTriangle, CheckCircle, Clock, Download } from 'lucide-react';
 import { mailingService } from '../../../services/api';
 import { saveBlockReport, clearBlockReports, MOCK_MAILING } from '../../../utils/reportUtils';
 
 import { StatCard, CreateQueueForm, QueueCard } from './components/Cards';
 import { AuthModal, AddBlockModal, BlockDetailModal } from './modals/QueueModals';
-// IMPORT ATUALIZADO: Removido o MailingUploadCleanModal que não existe mais
-import { InvenioUploadModal, SendMessageConfigModal } from './modals/MailingModals';
+import { InvenioUploadModal, SendMessageConfigModal, MailingDownloadModal } from './modals/MailingModals'; // ADICIONADO AQUI!
 
 export default function QueueManager() {
     const { clientId } = useParams();
@@ -32,6 +31,9 @@ export default function QueueManager() {
     const [isApiConfigModalOpen, setApiConfigModalOpen] = useState(false);
     const [activeMailing, setActiveMailing] = useState(null);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    
+    // NOVO ESTADO: Controle de abertura do Modal de Download
+    const [downloadModalMailing, setDownloadModalMailing] = useState(null);
 
     const [segments, setSegments] = useState([]);
     const [prodQueues, setProdQueues] = useState(() => JSON.parse(localStorage.getItem(QUEUES_STORAGE_KEY) || '[]'));
@@ -126,17 +128,10 @@ export default function QueueManager() {
     const handleDeleteMailing = (id) => { if (window.confirm('Excluir esta base? Filas atreladas a ela irão falhar.')) setMailings(prev => prev.filter(m => m.id !== id)); };
     const handleSaveMailingConfig = (id, config) => { setMailings(prev => prev.map(m => m.id === id ? { ...m, apiConfig: config } : m)); setApiConfigModalOpen(false); };
     
-    // ATUALIZADO: Agora a base já entra com isCleaned = true pois a limpeza é automática!
     const handleInvenioUploadSuccess = (serverResult, fileData, fileName) => { 
         setMailings(prev => [...prev, { 
-            id: serverResult.id, 
-            name: fileName, 
-            uploadDate: new Date().toLocaleString(), 
-            count: fileData.length, 
-            data: fileData, 
-            apiConfig: null, 
-            serverData: serverResult, 
-            isCleaned: true // Força TRUE pois higienizou automaticamente
+            id: serverResult.id, name: fileName, uploadDate: new Date().toLocaleString(), count: fileData.length, 
+            data: fileData, apiConfig: null, serverData: serverResult, isCleaned: true
         }]); 
     };
 
@@ -168,9 +163,6 @@ export default function QueueManager() {
         setAddBlockModalOpen(false); setBlockToEdit(null);
     };
 
-    // ========================================================================
-    // MOTOR DE DISPARO
-    // ========================================================================
     const runProductionQueue = async (queueId) => {
         activeRuns.current[queueId] = true;
 
@@ -474,8 +466,18 @@ export default function QueueManager() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {mailings.length === 0 && <div className="col-span-full text-center py-12 text-slate-400 border-2 border-dashed rounded-xl">Nenhuma base importada.</div>}
                         {mailings.map(m => (
-                            <div key={m.id} className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
-                                <div className="p-5 flex-1 relative">
+                            <div key={m.id} className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden relative">
+                                
+                                {/* NOVO BOTÃO DE EXPORTAÇÃO */}
+                                <button 
+                                    onClick={() => setDownloadModalMailing(m)}
+                                    className="absolute top-4 right-4 p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors z-10"
+                                    title="Exportar arquivos da base"
+                                >
+                                    <Download size={20} />
+                                </button>
+
+                                <div className="p-5 flex-1 pr-14">
                                     <FileText size={24} className="text-emerald-500 mb-3" />
                                     <h3 className="font-bold text-slate-800 text-lg truncate pr-6">{m.name}</h3>
                                     <p className="text-sm font-bold text-slate-600 mt-2">{m.count.toLocaleString()} contatos válidos</p>
@@ -484,7 +486,6 @@ export default function QueueManager() {
                                             {m.serverData ? <CheckCircle size={14} className="text-green-500" /> : <AlertTriangle size={14} className="text-yellow-500" />}
                                             <span className={m.serverData ? 'text-green-700' : 'text-slate-500'}>Invenio: {m.serverData ? 'Processado' : 'Apenas Local'}</span>
                                         </div>
-                                        {/* Status de Base Limpa Ajustado */}
                                         <div className="flex items-center gap-1.5 text-xs font-bold w-max">
                                             {m.isCleaned ? <CheckCircle size={14} className="text-green-500" /> : <AlertTriangle size={14} className="text-orange-500 animate-pulse" />}
                                             <span className={m.isCleaned ? 'text-green-700' : 'text-orange-600'}>Status: {m.isCleaned ? 'Base Auto-Higienizada' : 'Aguardando'}</span>
@@ -496,7 +497,6 @@ export default function QueueManager() {
                                     </div>
                                 </div>
                                 <div className="bg-slate-50 border-t border-slate-200 p-3 grid grid-cols-2 gap-2">
-                                    {/* Removido o botão de Limpeza Manual daqui! */}
                                     <button onClick={() => { setActiveMailing(m); setApiConfigModalOpen(true); }} className="col-span-1 bg-white border border-slate-300 text-slate-700 font-bold text-xs py-2 rounded-lg flex items-center justify-center gap-2 hover:text-blue-600 shadow-sm"><Settings size={14} /> Setup API</button>
                                     <button onClick={() => handleDeleteMailing(m.id)} className="col-span-1 border border-slate-200 text-slate-400 py-1.5 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-xs flex justify-center items-center gap-1"><Trash2 size={14} /> Excluir Base</button>
                                 </div>
@@ -537,10 +537,10 @@ export default function QueueManager() {
             {isAddBlockModalOpen && <AddBlockModal queueId={queueToAddTo} clientId={clientId} initialBlock={blockToEdit} allQueues={prodQueues} onClose={() => { setAddBlockModalOpen(false); setBlockToEdit(null); }} onSaveBlock={handleSaveBlock} />}
             {selectedBlockDetail && <BlockDetailModal clientId={clientId} block={selectedBlockDetail} onClose={() => setSelectedBlockDetail(null)} onRetryMailing={handleRetryMailing} />}
             {isUploadModalOpen && <InvenioUploadModal clientId={clientId} segments={segments} onClose={() => setIsUploadModalOpen(false)} onSuccess={handleInvenioUploadSuccess} />}
-            
-            {/* Removido o renderizador do Modal antigo daqui */}
-            
             {isApiConfigModalOpen && activeMailing && <SendMessageConfigModal mailing={activeMailing} onClose={() => setApiConfigModalOpen(false)} onSave={handleSaveMailingConfig} />}
+            
+            {/* NOVO MODAL DE DOWNLOAD RENDERIZADO AQUI */}
+            {downloadModalMailing && <MailingDownloadModal mailing={downloadModalMailing} onClose={() => setDownloadModalMailing(null)} />}
         </div>
     );
 }
